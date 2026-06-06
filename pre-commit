@@ -2,7 +2,7 @@
 # Global pre-commit hook — two checks, both bypassable with --no-verify.
 #
 #   CHECK 1: blocks staged FILE PATHS matching ~/.git-hooks/blocked-paths
-#            (CLAUDE.md, .claude/, AGENTS.md, docs/, etc.)
+#            (whatever you've decided to never commit – e.g. .claude/, private/, NOTES.md)
 #   CHECK 2: blocks staged CONTENT matching ~/.git-hooks/sensitive-patterns
 #            (your name, emails, phone numbers, etc. in added lines)
 #
