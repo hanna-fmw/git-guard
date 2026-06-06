@@ -1,0 +1,194 @@
+#!/bin/bash
+# Global pre-commit hook — two checks, both bypassable with --no-verify.
+#
+#   CHECK 1: blocks staged FILE PATHS matching ~/.git-hooks/blocked-paths
+#            (CLAUDE.md, .claude/, AGENTS.md, docs/, etc.)
+#   CHECK 2: blocks staged CONTENT matching ~/.git-hooks/sensitive-patterns
+#            (your name, emails, phone numbers, etc. in added lines)
+#
+# Override one commit:  git commit --no-verify
+# Skip in one repo:     git config hooks.skipSensitiveCheck true
+# Tune file blocks:     edit ~/.git-hooks/blocked-paths
+# Tune content scan:    edit ~/.git-hooks/sensitive-patterns
+
+set -u
+PATTERNS_FILE="${GIT_HOOKS_PATTERNS:-$HOME/.git-hooks/sensitive-patterns}"
+BLOCKED_PATHS_FILE="${GIT_HOOKS_BLOCKED_PATHS:-$HOME/.git-hooks/blocked-paths}"
+
+if [ "$(git config --bool hooks.skipSensitiveCheck 2>/dev/null)" = "true" ]; then
+    exit 0
+fi
+
+# ─────────────────────────────────────────────────────────────────────
+# CHECK 1 — blocked file paths
+# ─────────────────────────────────────────────────────────────────────
+if [ -f "$BLOCKED_PATHS_FILE" ]; then
+    BLOCKED_ACTIVE=$(mktemp)
+    BLOCKED_HITS=$(mktemp)
+    trap 'rm -f "$BLOCKED_ACTIVE" "$BLOCKED_HITS"' EXIT
+
+    grep -vE '^[[:space:]]*(#|$)' "$BLOCKED_PATHS_FILE" > "$BLOCKED_ACTIVE"
+
+    if [ -s "$BLOCKED_ACTIVE" ]; then
+        # Only flag ADDED/MODIFIED files. Deletions of blocked paths are
+        # hygiene (we WANT those tracked files gone), so don't block them.
+        STAGED=$(git diff --cached --name-only --diff-filter=AM 2>/dev/null)
+        if [ -n "$STAGED" ]; then
+            printf '%s\n' "$STAGED" | grep -E -f "$BLOCKED_ACTIVE" > "$BLOCKED_HITS" || true
+        fi
+
+        if [ -s "$BLOCKED_HITS" ]; then
+            # Cut through scroll noise — sound + interactive dialog.
+            afplay /System/Library/Sounds/Sosumi.aiff >/dev/null 2>&1 &
+            HIT_FILES=$(cat "$BLOCKED_HITS")
+            ACTION=$(osascript <<APPLESCRIPT 2>/dev/null
+set hitList to "$HIT_FILES"
+set theButtons to {"Cancel", "Open in editor", "Commit anyway"}
+display dialog "⛔ Pre-commit blocked these staged paths:" & return & return & hitList & return & return & "Cancel = keep blocked (safe default). Open in editor = unstage and edit. Commit anyway = ship as-is (--no-verify equivalent)." with title "Git pre-commit — blocked paths" buttons theButtons default button "Cancel" cancel button "Cancel" with icon caution
+return button returned of result
+APPLESCRIPT
+)
+            if [ "$ACTION" = "Commit anyway" ]; then
+                echo "→ User clicked 'Commit anyway' in the dialog. Bypassing path block." >&2
+                exit 0
+            fi
+            if [ "$ACTION" = "Open in editor" ]; then
+                while IFS= read -r f; do [ -n "$f" ] && open -a "Visual Studio Code" "$f" 2>/dev/null; done <<< "$HIT_FILES"
+            fi
+            echo ""
+            echo "═══════════════════════════════════════════════════════════════════"
+            echo "  ⛔  Pre-commit hook blocked staged files"
+            echo "═══════════════════════════════════════════════════════════════════"
+            echo ""
+            echo "These staged paths match the never-commit list:"
+            echo ""
+            sed 's/^/  /' "$BLOCKED_HITS"
+            echo ""
+            echo "───────────────────────────────────────────────────────────────────"
+            echo "Nothing was committed. Commit is blocked until you decide:"
+            echo ""
+            echo "  1. KEEP IT BLOCKED — do nothing. The files stay in your working"
+            echo "     tree, nothing is committed, nothing is pushed."
+            echo "     (Safe default. Walk away and nothing leaks.)"
+            echo ""
+            echo "  2. UNSTAGE THEM — keep the files locally, just don't commit:"
+            echo ""
+            echo "         git restore --staged <file>"
+            echo ""
+            echo "     If a file was previously tracked and you want it ignored from"
+            echo "     now on, also run:"
+            echo ""
+            echo "         git rm --cached <file>"
+            echo ""
+            echo "     Then re-stage what you do want and commit again."
+            echo ""
+            echo "  3. ACCEPT IT — if you intentionally want to commit one of these"
+            echo "     (rare; the global gitignore already prevents accidents):"
+            echo ""
+            echo "         git commit --no-verify"
+            echo ""
+            echo "  Tune blocked paths:  $BLOCKED_PATHS_FILE"
+            echo "  Skip in one repo:    git config hooks.skipSensitiveCheck true"
+            echo "═══════════════════════════════════════════════════════════════════"
+            exit 1
+        fi
+    fi
+fi
+
+# ─────────────────────────────────────────────────────────────────────
+# CHECK 2 — sensitive content in added lines
+# ─────────────────────────────────────────────────────────────────────
+if [ ! -f "$PATTERNS_FILE" ]; then
+    exit 0
+fi
+
+ACTIVE=$(mktemp)
+DIFF=$(mktemp)
+RESULTS=$(mktemp)
+cleanup() { rm -f "$ACTIVE" "$DIFF" "$RESULTS"; }
+trap cleanup EXIT
+
+grep -vE '^[[:space:]]*(#|$)' "$PATTERNS_FILE" > "$ACTIVE"
+if [ ! -s "$ACTIVE" ]; then
+    exit 0
+fi
+
+if ! git diff --cached --unified=0 --no-color > "$DIFF" 2>/dev/null; then
+    echo "pre-commit hook: failed to read staged diff — blocking to be safe." >&2
+    exit 1
+fi
+
+current_file=""
+current_line=0
+
+while IFS= read -r line; do
+    case "$line" in
+        "+++ b/"*)
+            current_file="${line#+++ b/}"
+            ;;
+        "+++"*)
+            ;;
+        "@@"*)
+            hunk="${line#*+}"
+            hunk="${hunk%% *}"
+            current_line="${hunk%%,*}"
+            ;;
+        "+"*)
+            added="${line:1}"
+            match=$(printf '%s\n' "$added" | grep -Eo -f "$ACTIVE" 2>/dev/null | head -1)
+            if [ -n "$match" ]; then
+                printf '  %s:%d  → %s\n' "$current_file" "$current_line" "$match" >> "$RESULTS"
+            fi
+            current_line=$((current_line + 1))
+            ;;
+    esac
+done < "$DIFF"
+
+if [ -s "$RESULTS" ]; then
+    afplay /System/Library/Sounds/Sosumi.aiff >/dev/null 2>&1 &
+    # Build a compact preview for the dialog (first 6 lines, file:line → match).
+    HIT_PREVIEW=$(head -6 "$RESULTS")
+    HIT_FILES=$(awk -F':' '{print $1}' "$RESULTS" | sort -u)
+    ACTION=$(osascript <<APPLESCRIPT 2>/dev/null
+set hitList to "$HIT_PREVIEW"
+set theButtons to {"Cancel", "Open in editor", "Commit anyway"}
+display dialog "⚠ Pre-commit flagged sensitive content in staged diff:" & return & return & hitList & return & return & "Cancel = keep blocked (safe). Open in editor = unstage to scrub. Commit anyway = ship as-is (--no-verify equivalent)." with title "Git pre-commit — sensitive content" buttons theButtons default button "Cancel" cancel button "Cancel" with icon caution
+return button returned of result
+APPLESCRIPT
+)
+    if [ "$ACTION" = "Commit anyway" ]; then
+        echo "→ User clicked 'Commit anyway' in the dialog. Bypassing content scan." >&2
+        exit 0
+    fi
+    if [ "$ACTION" = "Open in editor" ]; then
+        while IFS= read -r f; do [ -n "$f" ] && open -a "Visual Studio Code" "$f" 2>/dev/null; done <<< "$HIT_FILES"
+    fi
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════════"
+    echo "  ⚠  Pre-commit hook flagged potentially sensitive content"
+    echo "═══════════════════════════════════════════════════════════════════"
+    echo ""
+    cat "$RESULTS"
+    echo ""
+    echo "───────────────────────────────────────────────────────────────────"
+    echo "Nothing was committed. Commit is blocked until you decide:"
+    echo ""
+    echo "  1. KEEP IT BLOCKED — do nothing. The flagged content stays in"
+    echo "     your working tree, nothing is committed, nothing is pushed."
+    echo "     (This is the safe default. Walk away and the AI cannot push.)"
+    echo ""
+    echo "  2. SCRUB IT — edit the file(s), replace with a generic value"
+    echo "     (e.g. test@example.com, ~/Desktop/), re-stage, commit again."
+    echo ""
+    echo "  3. ACCEPT IT — if the match is intentional (your portfolio name,"
+    echo "     a product support email, a test fixture), commit anyway:"
+    echo ""
+    echo "         git commit --no-verify"
+    echo ""
+    echo "  Tune patterns:     $PATTERNS_FILE"
+    echo "  Skip in one repo:  git config hooks.skipSensitiveCheck true"
+    echo "═══════════════════════════════════════════════════════════════════"
+    exit 1
+fi
+
+exit 0

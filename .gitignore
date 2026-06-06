@@ -1,0 +1,14 @@
+# Local-only working notes & dashboards
+CLEAN-SLATE.md
+CLAUDE.md
+.claude/
+AGENTS.md
+GEMINI.md
+docs/
+private/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp

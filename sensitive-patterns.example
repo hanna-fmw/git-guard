@@ -1,0 +1,62 @@
+# sensitive-patterns — content the pre-commit hook will flag in staged diffs.
+# One POSIX extended regex per line (`grep -E` flavor). Comments start with #.
+# Blank lines are ignored.
+#
+# When a staged line you're adding matches any of these, the commit is blocked
+# and a dialog (macOS) + terminal output tells you exactly what was hit.
+# You then choose:
+#   1. KEEP IT BLOCKED — do nothing.
+#   2. SCRUB IT — edit the file, re-stage, commit again.
+#   3. ACCEPT IT — `git commit --no-verify` for this one commit.
+#
+# Design principle: patterns should be NARROW. Catching "every email" or
+# "every IPv4" creates so many false positives that you'll train yourself to
+# --no-verify reflexively, which defeats the purpose.
+#
+# Below are templates — replace with values that apply to you.
+
+# ---- Real names you don't want leaking through doc/code drift ----
+# Use full phrases to avoid catching unrelated brands.
+# Example:
+#   John Doe
+#   J\. Doe
+
+# ---- Client / contact names ----
+# Add a new line per client surname or full name as relationships form.
+# Example:
+#   Smith
+#   Alice Brown
+
+# ---- Personal email addresses ----
+# DELIBERATELY commented out by default — your own email often appears in
+# legitimate places (product support contact, n8n notification recipients,
+# auto-synced dashboards). Add CLIENT or third-party emails here instead.
+# Example:
+#   client\.surname@example\.com
+
+# ---- Phone numbers (your country / area code) ----
+# Example (Sweden):
+#   \+46[0-9 -]{8,}
+
+# ---- Local filesystem paths that reveal username or folder structure ----
+# These nearly always leak when AI assistants paste install instructions.
+/Users/[a-z0-9_-]+
+/home/[a-z0-9_-]+
+~/Desktop/
+~/Downloads/
+
+# ---- Invoice / financial document IDs ----
+# Example:
+#   INV-20[0-9]{2}-[0-9]+
+#   FAKTURA-?[0-9]+
+
+# ---- Specific public IPs you don't want exposed (VPS, homelab, etc.) ----
+# Add each as a literal — a broad IPv4 regex would catch 127.0.0.1 and break
+# every commit that mentions localhost.
+# Example:
+#   62\.238\.38\.28
+
+# ---- High-signal secret markers (uncomment if you want them caught) ----
+# OPENAI_API_KEY
+# ANTHROPIC_API_KEY
+# password\s*=\s*['\"][^'\"]{4,}

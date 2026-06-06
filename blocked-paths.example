@@ -1,0 +1,27 @@
+# Filenames / paths blocked from being committed by the global pre-commit hook.
+# One POSIX extended regex per line, matched against staged file paths
+# (the output of `git diff --cached --name-only`). Lines starting with # ignored.
+#
+# When a staged path matches any pattern, the commit is blocked with a list of
+# offending files and instructions to:
+#   1. KEEP IT BLOCKED — do nothing.
+#   2. UNTRACK IT — `git rm --cached <file>` (if it was tracked before),
+#      then re-stage the rest, commit again.
+#   3. ACCEPT IT — bypass this one commit with `git commit --no-verify`.
+#
+# This file is a belt-and-suspenders companion to ~/.gitignore_global. The
+# global gitignore handles the silent case; this hook handles AIs that try
+# `git add -f` or commit files that were already tracked.
+
+# ---- AI assistant files (never committed) ----
+(^|/)CLAUDE\.md$
+(^|/)\.claude(/|$)
+(^|/)AGENTS\.md$
+(^|/)GEMINI\.md$
+(^|/)GEMINI(/|$)
+
+# ---- Personal working notes & local-only vaults (never committed) ----
+(^|/)docs(/|$)
+(^|/)private(/|$)
+
+# ---- Add more patterns as you discover AI mistakes ----
