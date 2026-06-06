@@ -4,6 +4,8 @@ A small bash pre-commit hook that catches sensitive content before it leaves you
 
 Designed for people working with AI coding assistants (Claude Code, Cursor, Copilot, Codex) where a "helpful" `git add .` can sweep in machine-local config and absolute paths before you notice.
 
+<img src="dialog.png" alt="git-guard pre-commit dialog" width="350">
+
 ## Why
 
 Git has `.gitignore`. AI assistants sometimes use `git add -f` or commit files that were already tracked. `.gitignore` doesn't help with either. This hook does — at the git layer itself, after every other check. The commit object is never created if a pattern matches.
