@@ -1,6 +1,6 @@
 # git-guard
 
-A small bash pre-commit hook that catches sensitive content before it leaves your machine – paths with your username, real names, client emails, server IPs, AI assistant config files (`CLAUDE.md`, `.claude/`, `AGENTS.md`, `GEMINI.md`), local-only folders (`private/`, `docs/`), and anything else you flag. When something matches, the commit is blocked and (on macOS) you get an unmissable dialog with three buttons: **Cancel**, **Open in editor**, or **Commit anyway**.
+A small bash pre-commit hook that catches whatever you've flagged as sensitive – paths with your username, real names, client emails, server IPs, machine-local config files, or any other file or content you don't want leaving your machine. When something matches, the commit is blocked and (on macOS) you get an unmissable dialog with three buttons: **Cancel**, **Open in editor**, or **Commit anyway**.
 
 Designed for people working with AI coding assistants (Claude Code, Cursor, Copilot, Codex) where a "helpful" `git add .` can sweep in machine-local config and absolute paths before you notice.
 
@@ -44,7 +44,7 @@ The hook runs on every `git commit`. It does two checks:
 
 Reads `~/.git-hooks/blocked-paths`. Each line is a POSIX extended regex matched against `git diff --cached --name-only --diff-filter=AM` (added / modified, not deleted). If any staged path matches, the commit is blocked.
 
-Default `blocked-paths.example` blocks: `CLAUDE.md`, `.claude/`, `AGENTS.md`, `GEMINI.md`, `docs/`, `private/`.
+The shipped `blocked-paths.example` includes a handful of commonly-blocked files as a starting point – delete what doesn't apply to you, add what does.
 
 Deletions of blocked files are allowed – you're allowed to clean up.
 
