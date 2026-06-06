@@ -59,7 +59,33 @@ If any added line matches, the commit is blocked.
 
 #### Content allowlist (skip the scan for specific files)
 
-Some files are *supposed* to contain your name, email, or copyright (typical example: `LICENSE`). To stop the hook from prompting on these, add their path regex to `~/.git-hooks/content-allowlist` (one regex per line, `#` for comments). Default shipped allowlist covers `LICENSE`, `COPYING`, `NOTICE`, `AUTHORS`, `COPYRIGHT` (with optional `.md`/`.txt` extensions). The path-block check (Check 1) still runs normally on these files.
+Some files are *supposed* to contain your name, email, or other personal info that would otherwise match your patterns. Forcing a "Commit anyway" click every time you touch them is noise, not safety. Add their path regex to `~/.git-hooks/content-allowlist` (one regex per line, `#` for comments) and the content scan will skip those files. The path-block check (Check 1) still runs normally.
+
+Default shipped allowlist covers common open-source author-attribution files:
+
+```
+(^|/)LICENSE(\.md|\.txt)?$
+(^|/)COPYING(\.md|\.txt)?$
+(^|/)NOTICE(\.md|\.txt)?$
+(^|/)AUTHORS(\.md|\.txt)?$
+(^|/)COPYRIGHT(\.md|\.txt)?$
+```
+
+Other common things people add to their own allowlist:
+
+```
+# Personal portfolio / CV — your name and contact are the whole point
+(^|/)cv\.(md|tex|pdf)$
+(^|/)resume\.(md|tex|pdf)$
+src/app/about/page\.(tsx|jsx)$        # portfolio "About me" page
+(^|/)README\.md$                       # if your repo READMEs greet by name
+
+# Project pages where your support email is meant to be visible
+src/app/help/page\.(tsx|jsx)$
+src/components/footer\.(tsx|jsx)$
+```
+
+Each line is its own regex — add what fits your projects, skip the rest.
 
 ### When something is blocked
 
