@@ -25,18 +25,18 @@ The installer:
 
 Now edit `~/.git-hooks/sensitive-patterns` and add your real values (names, client emails, phone format, public IPs). The example file has commented-out templates to copy from.
 
-For an extra silent layer, add the AI-assistant file names to `~/.gitignore_global`:
+For an extra silent layer, set up a global gitignore so the same files are blocked at the `git add` stage in every repo (well-established best practice for OS noise, editor folders, and now AI-assistant config):
 
 ```sh
 git config --global core.excludesFile ~/.gitignore_global
-cat >> ~/.gitignore_global <<EOF
-CLAUDE.md
+```
+
+Then add to `~/.gitignore_global` whatever you want git to silently skip everywhere. Some examples:
+
+```
 .claude/
-AGENTS.md
-GEMINI.md
 private/
-docs/
-EOF
+NOTES.md
 ```
 
 ## How it works
