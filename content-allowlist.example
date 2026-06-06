@@ -1,0 +1,12 @@
+# content-allowlist — file paths where the content-pattern scan is SKIPPED.
+# One POSIX extended regex per line. # for comments.
+#
+# Use for files where your name / copyright / contact info is EXPECTED.
+# The blocked-paths check still runs normally; only the content scan is skipped.
+
+# Open-source author attribution — your name is supposed to be here
+(^|/)LICENSE(\.md|\.txt)?$
+(^|/)COPYING(\.md|\.txt)?$
+(^|/)NOTICE(\.md|\.txt)?$
+(^|/)AUTHORS(\.md|\.txt)?$
+(^|/)COPYRIGHT(\.md|\.txt)?$

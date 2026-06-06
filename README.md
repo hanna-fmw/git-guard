@@ -57,6 +57,10 @@ Reads `~/.git-hooks/sensitive-patterns`. Each line is a POSIX extended regex mat
 
 If any added line matches, the commit is blocked.
 
+#### Content allowlist (skip the scan for specific files)
+
+Some files are *supposed* to contain your name, email, or copyright (typical example: `LICENSE`). To stop the hook from prompting on these, add their path regex to `~/.git-hooks/content-allowlist` (one regex per line, `#` for comments). Default shipped allowlist covers `LICENSE`, `COPYING`, `NOTICE`, `AUTHORS`, `COPYRIGHT` (with optional `.md`/`.txt` extensions). The path-block check (Check 1) still runs normally on these files.
+
 ### When something is blocked
 
 On macOS:

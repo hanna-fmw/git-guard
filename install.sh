@@ -27,7 +27,7 @@ chmod +x "$DEST/pre-commit"
 echo "installed: $DEST/pre-commit"
 
 # Config files — copy from .example only if missing, never clobber.
-for name in sensitive-patterns blocked-paths; do
+for name in sensitive-patterns blocked-paths content-allowlist; do
   example="$SRC/$name.example"
   target="$DEST/$name"
   if [ -f "$target" ]; then

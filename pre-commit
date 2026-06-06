@@ -14,6 +14,7 @@
 set -u
 PATTERNS_FILE="${GIT_HOOKS_PATTERNS:-$HOME/.git-hooks/sensitive-patterns}"
 BLOCKED_PATHS_FILE="${GIT_HOOKS_BLOCKED_PATHS:-$HOME/.git-hooks/blocked-paths}"
+ALLOWLIST_FILE="${GIT_HOOKS_ALLOWLIST:-$HOME/.git-hooks/content-allowlist}"
 
 if [ "$(git config --bool hooks.skipSensitiveCheck 2>/dev/null)" = "true" ]; then
     exit 0
@@ -41,19 +42,22 @@ if [ -f "$BLOCKED_PATHS_FILE" ]; then
             # Cut through scroll noise — sound + interactive dialog.
             afplay /System/Library/Sounds/Sosumi.aiff >/dev/null 2>&1 &
             HIT_FILES=$(cat "$BLOCKED_HITS")
+            HIT_LIST_ESC=$(echo "$HIT_FILES" | sed 's/"/\\"/g')
             ACTION=$(osascript <<APPLESCRIPT 2>/dev/null
-set hitList to "$HIT_FILES"
+set hitList to "$HIT_LIST_ESC"
 set theButtons to {"Cancel", "Open in editor", "Commit anyway"}
-display dialog "⛔ Pre-commit blocked these staged paths:" & return & return & hitList & return & return & "Cancel = keep blocked (safe default). Open in editor = unstage and edit. Commit anyway = ship as-is (--no-verify equivalent)." with title "Git pre-commit — blocked paths" buttons theButtons default button "Cancel" cancel button "Cancel" with icon caution
+display dialog "Pre-commit is about to ship these files which are on the never-commit list:" & return & return & hitList & return & return & "If you intentionally want to commit one of these — click Commit anyway." & return & return & "To unstage and inspect — click Open in editor." & return & return & "Cancel = keep blocked. Nothing ships." with title "Git pre-commit" buttons theButtons default button "Cancel" cancel button "Cancel" with icon caution
 return button returned of result
 APPLESCRIPT
 )
             if [ "$ACTION" = "Commit anyway" ]; then
-                echo "→ User clicked 'Commit anyway' in the dialog. Bypassing path block." >&2
+                echo "→ Approved in dialog. Proceeding with commit." >&2
                 exit 0
             fi
             if [ "$ACTION" = "Open in editor" ]; then
-                while IFS= read -r f; do [ -n "$f" ] && open -a "Visual Studio Code" "$f" 2>/dev/null; done <<< "$HIT_FILES"
+                while IFS= read -r f; do
+                    [ -n "$f" ] && command -v code >/dev/null 2>&1 && code "$f" 2>/dev/null
+                done <<< "$HIT_FILES"
             fi
             echo ""
             echo "═══════════════════════════════════════════════════════════════════"
@@ -113,6 +117,14 @@ if [ ! -s "$ACTIVE" ]; then
     exit 0
 fi
 
+# Optional allowlist of file paths where the content scan is skipped.
+# Useful for LICENSE / NOTICE / AUTHORS where your name is supposed to appear.
+ALLOWLIST_ACTIVE=$(mktemp)
+if [ -f "$ALLOWLIST_FILE" ]; then
+    grep -vE '^[[:space:]]*(#|$)' "$ALLOWLIST_FILE" > "$ALLOWLIST_ACTIVE"
+fi
+trap 'rm -f "$ACTIVE" "$DIFF" "$RESULTS" "$ALLOWLIST_ACTIVE"' EXIT
+
 if ! git diff --cached --unified=0 --no-color > "$DIFF" 2>/dev/null; then
     echo "pre-commit hook: failed to read staged diff — blocking to be safe." >&2
     exit 1
@@ -120,11 +132,16 @@ fi
 
 current_file=""
 current_line=0
+file_allowed=0
 
 while IFS= read -r line; do
     case "$line" in
         "+++ b/"*)
             current_file="${line#+++ b/}"
+            file_allowed=0
+            if [ -s "$ALLOWLIST_ACTIVE" ] && printf '%s\n' "$current_file" | grep -qE -f "$ALLOWLIST_ACTIVE"; then
+                file_allowed=1
+            fi
             ;;
         "+++"*)
             ;;
@@ -134,6 +151,10 @@ while IFS= read -r line; do
             current_line="${hunk%%,*}"
             ;;
         "+"*)
+            if [ "$file_allowed" = "1" ]; then
+                current_line=$((current_line + 1))
+                continue
+            fi
             added="${line:1}"
             match=$(printf '%s\n' "$added" | grep -Eo -f "$ACTIVE" 2>/dev/null | head -1)
             if [ -n "$match" ]; then
@@ -146,22 +167,27 @@ done < "$DIFF"
 
 if [ -s "$RESULTS" ]; then
     afplay /System/Library/Sounds/Sosumi.aiff >/dev/null 2>&1 &
-    # Build a compact preview for the dialog (first 6 lines, file:line → match).
-    HIT_PREVIEW=$(head -6 "$RESULTS")
-    HIT_FILES=$(awk -F':' '{print $1}' "$RESULTS" | sort -u)
+    # Show every flagged hit in the dialog (file:line and the matched text),
+    # so the user can decide without leaving the dialog.
+    HIT_PREVIEW=$(sed 's/^[[:space:]]*//' "$RESULTS" | head -10 | sed 's/"/\\"/g')
+    # Parsable "file:line" list for the "Open in editor" jump action.
+    HIT_FILELINES=$(sed -E 's/^[[:space:]]*([^:]+):([0-9]+).*/\1:\2/' "$RESULTS" | sort -u)
     ACTION=$(osascript <<APPLESCRIPT 2>/dev/null
 set hitList to "$HIT_PREVIEW"
 set theButtons to {"Cancel", "Open in editor", "Commit anyway"}
-display dialog "⚠ Pre-commit flagged sensitive content in staged diff:" & return & return & hitList & return & return & "Cancel = keep blocked (safe). Open in editor = unstage to scrub. Commit anyway = ship as-is (--no-verify equivalent)." with title "Git pre-commit — sensitive content" buttons theButtons default button "Cancel" cancel button "Cancel" with icon caution
+display dialog "Pre-commit flagged these matches in the diff you're about to commit:" & return & return & hitList & return & return & "If this is intentional (e.g. your own name in LICENSE / copyright, your support email in a help page) — click Commit anyway." & return & return & "If you need to scrub it — click Open in editor (jumps to the exact line)." & return & return & "Cancel = keep blocked. Nothing ships." with title "Git pre-commit" buttons theButtons default button "Cancel" cancel button "Cancel" with icon caution
 return button returned of result
 APPLESCRIPT
 )
     if [ "$ACTION" = "Commit anyway" ]; then
-        echo "→ User clicked 'Commit anyway' in the dialog. Bypassing content scan." >&2
+        echo "→ Approved in dialog. Proceeding with commit." >&2
         exit 0
     fi
     if [ "$ACTION" = "Open in editor" ]; then
-        while IFS= read -r f; do [ -n "$f" ] && open -a "Visual Studio Code" "$f" 2>/dev/null; done <<< "$HIT_FILES"
+        # `code --goto file:line` opens VS Code at the exact line.
+        while IFS= read -r fl; do
+            [ -n "$fl" ] && command -v code >/dev/null 2>&1 && code --goto "$fl" 2>/dev/null
+        done <<< "$HIT_FILELINES"
     fi
     echo ""
     echo "═══════════════════════════════════════════════════════════════════"
