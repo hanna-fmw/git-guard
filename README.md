@@ -25,18 +25,15 @@ The installer:
 
 Now edit `~/.git-hooks/sensitive-patterns` and add your real values (names, client emails, phone format, public IPs). The example file has commented-out templates to copy from.
 
-For an extra silent layer, set up a global gitignore so the same files are blocked at the `git add` stage in every repo (well-established best practice for OS noise, editor folders, and now AI-assistant config):
+For an extra silent layer, set up a global gitignore so the same files are blocked at the `git add` stage in every repo (well-established best practice for OS noise, editor folders, and now AI-assistant config). Add whatever you want git to silently skip everywhere — a few examples below:
 
 ```sh
 git config --global core.excludesFile ~/.gitignore_global
-```
-
-Then add to `~/.gitignore_global` whatever you want git to silently skip everywhere. Some examples:
-
-```
+cat >> ~/.gitignore_global <<EOF
 .claude/
 private/
 NOTES.md
+EOF
 ```
 
 ## How it works
