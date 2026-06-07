@@ -2,7 +2,7 @@
 # Global pre-commit hook — two checks, both bypassable with --no-verify.
 #
 #   CHECK 1: blocks staged FILE PATHS matching ~/.git-hooks/blocked-paths
-#            (whatever you've decided to never commit – e.g. .claude/, private/, NOTES.md)
+#            (whatever you've decided to never commit — e.g. .claude/, private/, NOTES.md)
 #   CHECK 2: blocks staged CONTENT matching ~/.git-hooks/sensitive-patterns
 #            (your name, emails, phone numbers, etc. in added lines)
 #
@@ -19,6 +19,37 @@ ALLOWLIST_FILE="${GIT_HOOKS_ALLOWLIST:-$HOME/.git-hooks/content-allowlist}"
 if [ "$(git config --bool hooks.skipSensitiveCheck 2>/dev/null)" = "true" ]; then
     exit 0
 fi
+
+# Context for dialogs — so a 2-AM popup tells you WHICH repo and WHAT
+# invoked git (launchd vs terminal vs an AI session).
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "?")
+REPO_NAME=$(basename "$REPO_ROOT")
+REPO_DISPLAY="${REPO_ROOT/#$HOME/~}"
+# Walk up the parent chain a few steps so "git <- sh <- launchd" resolves
+# to "launchd", not the shell wrapper in between.
+INVOKER=""
+pid=$PPID
+for _ in 1 2 3 4 5; do
+    [ -z "$pid" ] && break
+    [ "$pid" = "0" ] && break
+    [ "$pid" = "1" ] && { INVOKER="launchd"; break; }
+    comm=$(ps -p "$pid" -o comm= 2>/dev/null | sed 's|.*/||' | tr -d ' ')
+    case "$comm" in
+        ""|sh|bash|zsh|dash|git|env|node|npm|pnpm) ;;
+        *) INVOKER="$comm"; break ;;
+    esac
+    pid=$(ps -p "$pid" -o ppid= 2>/dev/null | tr -d ' ')
+done
+[ -z "$INVOKER" ] && INVOKER="shell"
+CONTEXT_LINE="Repo: $REPO_NAME    Invoked by: $INVOKER"
+
+# Escape a string for safe interpolation into an AppleScript double-quoted
+# literal: backslashes first, then double quotes. Without this, a repo or
+# file path containing \ or " could break out of the AppleScript literal.
+ascesc() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+REPO_NAME_ESC=$(ascesc "$REPO_NAME")
 
 # ─────────────────────────────────────────────────────────────────────
 # CHECK 1 — blocked file paths
@@ -42,12 +73,19 @@ if [ -f "$BLOCKED_PATHS_FILE" ]; then
             # Cut through scroll noise — sound + interactive dialog.
             afplay /System/Library/Sounds/Sosumi.aiff >/dev/null 2>&1 &
             HIT_FILES=$(cat "$BLOCKED_HITS")
-            HIT_LIST_ESC=$(echo "$HIT_FILES" | sed 's/"/\\"/g')
+            HIT_LIST_ESC=$(ascesc "$HIT_FILES")
+            CTX_ESC=$(ascesc "$CONTEXT_LINE")
+            REPO_ESC=$(ascesc "$REPO_DISPLAY")
             ACTION=$(osascript <<APPLESCRIPT 2>/dev/null
-set hitList to "$HIT_LIST_ESC"
-set theButtons to {"Cancel", "Open in editor", "Commit anyway"}
-display dialog "Pre-commit is about to ship these files which are on the never-commit list:" & return & return & hitList & return & return & "If you intentionally want to commit one of these — click Commit anyway." & return & return & "To unstage and inspect — click Open in editor." & return & return & "Cancel = keep blocked. Nothing ships." with title "Git pre-commit" buttons theButtons default button "Cancel" cancel button "Cancel" with icon caution
-return button returned of result
+tell application "System Events"
+    activate
+    set hitList to "$HIT_LIST_ESC"
+    set ctxLine to "$CTX_ESC"
+    set repoPath to "$REPO_ESC"
+    set theButtons to {"Cancel", "Open in editor", "Commit anyway"}
+    set d to display dialog ctxLine & return & repoPath & return & return & "These staged files are on your never-commit list:" & return & return & hitList & return & return & "Cancel = keep blocked.   Open in editor = unstage & inspect.   Commit anyway = ship them." with title ("Git pre-commit — " & "$REPO_NAME_ESC") buttons theButtons default button "Cancel" cancel button "Cancel" with icon caution
+    return button returned of d
+end tell
 APPLESCRIPT
 )
             if [ "$ACTION" = "Commit anyway" ]; then
@@ -169,14 +207,22 @@ if [ -s "$RESULTS" ]; then
     afplay /System/Library/Sounds/Sosumi.aiff >/dev/null 2>&1 &
     # Show every flagged hit in the dialog (file:line and the matched text),
     # so the user can decide without leaving the dialog.
-    HIT_PREVIEW=$(sed 's/^[[:space:]]*//' "$RESULTS" | head -10 | sed 's/"/\\"/g')
+    HIT_PREVIEW_RAW=$(sed 's/^[[:space:]]*//' "$RESULTS" | head -10)
+    HIT_PREVIEW=$(ascesc "$HIT_PREVIEW_RAW")
     # Parsable "file:line" list for the "Open in editor" jump action.
     HIT_FILELINES=$(sed -E 's/^[[:space:]]*([^:]+):([0-9]+).*/\1:\2/' "$RESULTS" | sort -u)
+    CTX_ESC=$(ascesc "$CONTEXT_LINE")
+    REPO_ESC=$(ascesc "$REPO_DISPLAY")
     ACTION=$(osascript <<APPLESCRIPT 2>/dev/null
-set hitList to "$HIT_PREVIEW"
-set theButtons to {"Cancel", "Open in editor", "Commit anyway"}
-display dialog "Pre-commit flagged these matches in the diff you're about to commit:" & return & return & hitList & return & return & "If this is intentional (e.g. your own name in LICENSE / copyright, your support email in a help page) — click Commit anyway." & return & return & "If you need to scrub it — click Open in editor (jumps to the exact line)." & return & return & "Cancel = keep blocked. Nothing ships." with title "Git pre-commit" buttons theButtons default button "Cancel" cancel button "Cancel" with icon caution
-return button returned of result
+tell application "System Events"
+    activate
+    set hitList to "$HIT_PREVIEW"
+    set ctxLine to "$CTX_ESC"
+    set repoPath to "$REPO_ESC"
+    set theButtons to {"Cancel", "Open in editor", "Commit anyway"}
+    set d to display dialog ctxLine & return & repoPath & return & return & "Pre-commit flagged these matches in the staged diff:" & return & return & hitList & return & return & "Cancel = keep blocked.   Open in editor = jump to the line and scrub.   Commit anyway = ship as-is (only if intentional)." with title ("Git pre-commit — " & "$REPO_NAME_ESC") buttons theButtons default button "Cancel" cancel button "Cancel" with icon caution
+    return button returned of d
+end tell
 APPLESCRIPT
 )
     if [ "$ACTION" = "Commit anyway" ]; then
